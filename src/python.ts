@@ -35,7 +35,7 @@ type IPythonExtensionApi = {
         };
     };
 };
-export async function isPythonAvaialble(): Promise<boolean> {
+export async function isPythonAvailable(): Promise<boolean> {
     const pythonCmd = testPythonCommand().catch(() => false);
     const pythonExt = testPythonExtCommand().catch(() => false);
 
