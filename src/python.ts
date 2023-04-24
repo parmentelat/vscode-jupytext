@@ -4,7 +4,6 @@ import * as path from 'path';
 import { getExtensionDir } from './constants';
 import { rejects } from 'assert';
 
-let usePython: 'command' | 'extension' | undefined;
 type Resource = Uri | undefined;
 type IPythonExtensionApi = {
     /**
@@ -35,25 +34,80 @@ type IPythonExtensionApi = {
         };
     };
 };
-export async function isPythonAvailable(): Promise<boolean> {
-    const pythonCmd = testPythonCommand().catch(() => false);
-    const pythonExt = testPythonExtCommand().catch(() => false);
 
-    const [cmdSupported, extSupported] = await Promise.all([
-        pythonCmd,
-        pythonExt,
+// run locatePythonBinary to set this according to the context
+let pythonBinary: string | boolean = false;
+let hasJupytext: boolean;
+
+
+export async function runPython(cmdArgs: string[]): Promise<string> {
+    // not python-ready
+    if (typeof pythonBinary === 'boolean') {
+        console.log("Cannot run Python");
+        return "";
+    }
+    const debug = [pythonBinary].concat(cmdArgs);
+    console.log('runPython', debug);
+    return runCommand([pythonBinary].concat(cmdArgs));
+}
+
+export async function runJupytext(cmdArgs: string[]): Promise<string> {
+    return runPython(["-m", "jupytext"].concat(cmdArgs));
+}
+
+
+
+export async function locatePythonAndJupytext(): Promise<boolean> {
+    const step1 = await locatePythonBinary();
+    if (! step1) { return false; }
+    return await usePackagedLibraries();
+}
+
+async function locatePythonBinary(): Promise<boolean> {
+    const pythonExtBinary = testPythonExtBinary().catch(() => false);
+    const pythonSysBinary = testPythonSysBinary().catch(() => false);
+
+    const [extSupported, sysSupported] = await Promise.all([
+        pythonExtBinary,
+        pythonSysBinary,
     ]);
-    if (extSupported) {
-        usePython = 'extension';
+    if (extSupported !== undefined) {
+        pythonBinary = extSupported;
+        console.debug(`using python as configured in Python-extension, i.e. in ${pythonBinary}`);
         return true;
     }
-    if (cmdSupported) {
-        usePython = 'command';
+    if (sysSupported !== undefined) {
+        pythonBinary = sysSupported;
+        console.debug(`using system python in ${pythonBinary}`);
         return true;
     }
     return false;
 }
-async function testPythonExtCommand(): Promise<boolean> {
+
+async function usePackagedLibraries(): Promise<boolean> {
+    const version = await runJupytext(["--version"]);
+    hasJupytext = (version !== "");
+    console.debug(`hasJupytext = ${hasJupytext}`);
+    return hasJupytext;
+}
+
+// system python: try python, then python3
+async function testPythonSysBinary(): Promise<string | boolean> {
+    const pythonBinary = checkPythonBinary("python");
+    const python3Binary = checkPythonBinary("python3");
+    const [resolved, resolved3] = await Promise.all([
+        pythonBinary, python3Binary
+    ]);
+    if (resolved !== false) {
+        return resolved;
+    }
+    if (resolved3 !== false) {
+        return resolved3;
+    }
+    return false;
+}
+// locate the binary configured in Python-extension
+async function testPythonExtBinary(): Promise<string | boolean> {
     const pyExt =
         extensions.getExtension<IPythonExtensionApi>('ms-python.python');
     if (!pyExt) {
@@ -71,42 +125,46 @@ async function testPythonExtCommand(): Promise<boolean> {
     if (!cli.execCommand) {
         return false;
     }
-    const cmd = cli.execCommand?.concat(
-        'c',
-        'import sys;print(sys.executable);print(sys.version)'
+    // remove any trailing newline
+    return checkPythonBinary(cli.execCommand);
+}
+
+// find the actual binary
+async function checkPythonBinary(command: string | string[]): Promise<string | boolean> {
+    let asArray = (command instanceof Array) ? command : [command];
+    const cmdArgs = asArray.concat(
+        '-c',
+        'import sys;print(sys.executable)'
     );
-    return supportsPython(cmd);
-}
-function buildCmd(cmdArgs: string[]) {
-    return cmdArgs.map((item) => item.replace(/\\/g, '/'));
-}
-async function supportsPython(cmdArgs: string[]): Promise<boolean> {
     try {
-        const output = await runPythonCommand(cmdArgs);
-        if (output.length === 0) {
-            return false;
-        }
-        return output
-            .split(/\r?\n/)
-            .map((line) => line.trim())
-            .some((line) => line.startsWith('3.'));
+        const output = await runCommand(cmdArgs);
+        return (output.length === 0) ? false : output.replace(/\n+$/, "");
     } catch (ex) {
-        console.error('Failed to find python', ex);
+        console.error(`Failed to find python, running ${cmdArgs}`, ex);
         return false;
     }
 }
-export async function runPythonCommand(cmdArgs: string[]): Promise<string> {
+
+
+function buildCmd(cmdArgs: string[]) {
+    return cmdArgs.map((item) => item.replace(/\\/g, '/'));
+}
+
+// run a command, return stdout if all goes well, reject with stderr other wise
+export async function runCommand(cmdArgs: string[]): Promise<string> {
     const [cmd, ...args] = buildCmd(cmdArgs);
     const env: NodeJS.ProcessEnv = {
         ...process.env,
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: process.env['PYTHONIOENCODING'] || 'utf-8',
     };
+    let spawnEnv = {cwd: '.', env};
+    // only use packagelibs if jupytedt was not pip-installed
+    if (! hasJupytext) {
+        spawnEnv.cwd = path.join(getExtensionDir().fsPath, 'python-libs');
+    }
 
-    const proc = spawn(cmd, args, {
-        cwd: path.join(getExtensionDir().fsPath, 'python-libs'),
-        env,
-    });
+    const proc = spawn(cmd, args, spawnEnv);
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (data) => {
@@ -127,15 +185,4 @@ export async function runPythonCommand(cmdArgs: string[]): Promise<string> {
         });
         proc.on('close', () => resolve(stdout));
     });
-}
-export async function runJupytext(cmdArgs: string[]): Promise<string> {
-    return runPythonCommand(['python3'].concat(cmdArgs));
-}
-async function testPythonCommand(): Promise<boolean> {
-    const cmd = [
-        'python3',
-        'c',
-        'import sys;print(sys.executable);print(sys.version)',
-    ];
-    return supportsPython(cmd);
 }

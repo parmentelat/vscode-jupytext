@@ -2,7 +2,7 @@ import { Uri, window, workspace } from 'vscode';
 import * as path from 'path';
 import { getGlobalCache, getGlobalTempDir, jupytextScheme } from './constants';
 import * as fs from 'fs-extra';
-import { runJupytext } from './python';
+import { locatePythonAndJupytext, runPython, runJupytext } from './python';
 import { tempFile } from './utils';
 
 export type FileMapping = {
@@ -47,15 +47,22 @@ export async function convertToNotebook(
     ) {
         return existingMapping;
     }
-    
+
     const fname = path.basename(uri.fsPath, path.extname(uri.fsPath));
     const targetIpynbName = path.basename(
         await tempFile({ extension: '.ipynb' })
     );
     const targetIpynb = existingMapping ? Uri.file(existingMapping.tempIpynb) : Uri.joinPath(getGlobalTempDir(), targetIpynbName);
 
-    const cache = getGlobalCache();
-    await runJupytext([
+    // const cache = getGlobalCache();
+    // it makes sense to re-run this each time, so that changes in the Python extension
+    // get takes into account
+    const prepare = await locatePythonAndJupytext();
+    const pythonVersion = await runPython(['--version']);
+    console.debug(`vscode-jupytext: using Python version ${pythonVersion}`);
+    const jupytextVersion = await runJupytext(['--version']);
+    console.debug(`vscode-jupytext: using jupytext version ${jupytextVersion}`);
+    await runPython([
         '-m',
         'jupytext',
         '--to',
@@ -70,7 +77,7 @@ export async function convertToNotebook(
         path.join(path.dirname(uri.fsPath), fname + '.ipynb')
     ).with({ scheme: 'jupytext' });
     existingMapping = existingMapping || {sourceScript: uri.fsPath, tempIpynb: targetIpynb.fsPath, virtualIpynb: virtualIpynb.fsPath };
-    
+
     if (await fs.pathExists(targetIpynb.fsPath)) {
         await addMapping(existingMapping);
         return existingMapping;
@@ -86,8 +93,6 @@ export async function convertFromNotebookToRawContent(
 ): Promise<Buffer> {
     const extension = path.extname(targetUri.fsPath);
     const convertedFile = await runJupytext([
-        '-m',
-        'jupytext',
         '--to',
         `${extension.substring(1)}:percent`,
         '--opt',
