@@ -33,9 +33,9 @@ import { Uri } from "vscode"
 //     ".sage": {"language": "sage", "comment": "#"},
 // }
 
-export function isConversionSupportedWithoutPython(uri: Uri){
-    if (uri.fsPath.toLowerCase().endsWith('.py')){
-        return false;
-    }
-    return true;
-}
+// export function isConversionSupportedWithoutPython(uri: Uri){
+//     if (uri.fsPath.toLowerCase().endsWith('.py')){
+//         return false;
+//     }
+//     return true;
+// }
