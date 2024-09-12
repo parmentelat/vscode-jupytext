@@ -76,6 +76,7 @@ export async function convertToNotebook(
     const virtualIpynb = Uri.file(
         path.join(path.dirname(uri.fsPath), fname + '.ipynb')
     ).with({ scheme: 'jupytext' });
+    console.log('existingMapping', existingMapping);
     existingMapping = existingMapping || {sourceScript: uri.fsPath, tempIpynb: targetIpynb.fsPath, virtualIpynb: virtualIpynb.fsPath };
 
     if (await fs.pathExists(targetIpynb.fsPath)) {
@@ -91,15 +92,29 @@ export async function convertFromNotebookToRawContent(
     uri: Uri,
     targetUri: Uri
 ): Promise<Buffer> {
+    // compute the format to convert to
+    // the original version always used `percent` format
+    // but that's not always right, e.g. for markdown files
+    // in this version we hard-wire a mapping markdown -> myst and * -> percent
+    // however, the right way to go about that would be to check the notebook metadata
+    // jupyter.jupytext.text_representation.format_name
+    // which should be used if defined, instead of the above heuristic
+    // that should only act as a last resort defaulting strategy
     const extension = path.extname(targetUri.fsPath);
+    // remove initial dot
+    const ext = extension.substring(1);
+    // console.log("FOUND extension", ext);
+    const targetFormat = (ext: String) => {
+        switch(ext) {
+            case ('md'): return 'md:myst';
+            default: return `${ext}:percent`;
+        }
+    };
     const convertedFile = await runJupytext([
-        '--to',
-        `${extension.substring(1)}:percent`,
-        '--opt',
-        'custom_cell_magics=kql',
+        '--to', targetFormat(ext),
+        '--opt', 'custom_cell_magics=kql',
         uri.fsPath,
-        '--output',
-        '-',
+        '--output', '-',
     ]);
 
     return Buffer.from(convertedFile, 'utf8');

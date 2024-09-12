@@ -52,6 +52,7 @@ export async function runPython(cmdArgs: string[]): Promise<string> {
 }
 
 export async function runJupytext(cmdArgs: string[]): Promise<string> {
+    console.log("triggering jupytext with args", cmdArgs);
     return runPython(["-m", "jupytext"].concat(cmdArgs));
 }
 
