@@ -1,9 +1,9 @@
 {
     "name": "vscode-jupytext",
-    "version": "0.1.2",
     "displayName": "Jupytext for Notebooks (parmentelat)",
     "description": "Open, edit and execute plain script files (MyST Markdown, Python, R, Julia, TypeScript, C#, etc) as Jupyter Notebooks.  Soft fork of donjayamanne.vscode-jupytext",
     "publisher": "parmentelat",
+    "version": "0.2.0",
     "enableProposedApi": false,
     "preview": true,
     "engines": {
